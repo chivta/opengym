@@ -5,14 +5,14 @@ kind: Kustomization
 namespace: opengym
 
 resources:
-  - namespace.yaml
-  - api/pvc.yaml
-  - api/deployment.yaml
-  - api/service.yaml
-  - web/pvc.yaml
-  - web/deployment.yaml
-  - web/service.yaml
-  - ingress.yaml
+- namespace.yaml
+- api/pvc.yaml
+- api/deployment.yaml
+- api/service.yaml
+- web/pvc.yaml
+- web/deployment.yaml
+- web/service.yaml
+- ingress.yaml
 
 # No secrets.enc.yaml and no imagePullSecrets: openGym has no credentials to hand the
 # cluster (the session secret and the VAPID keypair are generated into the data volume on
@@ -21,7 +21,9 @@ resources:
 # Rewritten by .github/workflows/cd.yaml on every green build — `placeholder` only ever
 # appears before the first CD run.
 images:
-  - name: ghcr.io/chivta/opengym-api
-    newTag: placeholder
-  - name: ghcr.io/chivta/opengym-web
-    newTag: placeholder
+- name: ghcr.io/chivta/opengym-api
+  newName: ghcr.io/chivta/opengym-api
+  newTag: 502382a242af89689d7565d2d7eab6e497fe7040
+- name: ghcr.io/chivta/opengym-web
+  newName: ghcr.io/chivta/opengym-web
+  newTag: 502382a242af89689d7565d2d7eab6e497fe7040
