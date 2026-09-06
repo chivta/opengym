@@ -12,11 +12,24 @@ instead; this directory is one specific deployment, not the supported way to run
 | `api` | `ghcr.io/chivta/opengym-api`, one replica, `/data` on a 1 Gi ReadWriteOnce volume |
 | `web` | `ghcr.io/chivta/opengym-web`, nginx on 8080 as uid 101, exercise media on a second volume |
 | `ingress` | Traefik splits one host: `/api` → api:3000, everything else → web:80 |
+| `middleware` | `ipAllowList` on 10.10.0.0/24, so only the headscale tailnet can reach it |
 
 The compose stack puts nginx in front of the API so the whole app shares one origin, which
 WebAuthn requires. Here the Ingress does that split instead, so nginx's `/api` proxy block
 is never reached — which is just as well, since its `resolver 127.0.0.11` is Docker's
 embedded DNS and would not resolve anything in a cluster.
+
+## Tailnet only
+
+The DNS record for `opengym.chivtar.dev` is an A record pointing at `10.10.0.1`, the
+node's tailnet address, DNS-only rather than proxied. That handles routing, not access:
+Traefik is a k3s ServiceLB and binds the node's ports on every interface, so a request
+that finds the origin address and sets the right Host header would be served whatever DNS
+says. `middleware.yaml` is what actually refuses it.
+
+`RP_ID` does not change either way, so this can be reversed to a public record later
+without invalidating a passkey. What it costs is a phone that is off the tailnet: push
+notifications still arrive, but tapping one opens a page that cannot load.
 
 Exercise media (~140 MB) is fetched by the `media` initContainer on the web pod, the same
 job the compose `media` service does, and kept on a volume so a restart is not a re-download.

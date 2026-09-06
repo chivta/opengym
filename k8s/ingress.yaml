@@ -5,6 +5,10 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: opengym
+  annotations:
+    # Tailnet-only. The reference is <namespace>-<name>@kubernetescrd; see middleware.yaml
+    # for why the DNS record alone does not close this off.
+    traefik.ingress.kubernetes.io/router.middlewares: opengym-tailnet-only@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:

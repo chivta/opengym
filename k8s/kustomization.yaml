@@ -12,6 +12,7 @@ resources:
 - web/pvc.yaml
 - web/deployment.yaml
 - web/service.yaml
+- middleware.yaml
 - ingress.yaml
 
 # No secrets.enc.yaml and no imagePullSecrets: openGym has no credentials to hand the

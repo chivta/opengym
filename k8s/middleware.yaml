@@ -1,0 +1,20 @@
+# openGym is reachable over the headscale tailnet only.
+#
+# The DNS record for opengym.chivtar.dev points at 10.10.0.1, which is already unroutable
+# from anywhere else, but that is routing rather than a control: Traefik runs as a k3s
+# ServiceLB and binds the node's :80/:443 on every interface, the public one included. A
+# request that reaches the origin address with the right Host header would otherwise be
+# served whatever DNS says. This is what refuses it.
+#
+# No ipStrategy: the default reads the connection's own peer address rather than
+# X-Forwarded-For, which is what makes the check worth anything. There is no proxy in
+# front on this route — a tailnet client connects to Traefik directly.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: tailnet-only
+spec:
+  ipAllowList:
+    # The whole headscale range. Peers today are .1 (the node) through .4.
+    sourceRange:
+      - 10.10.0.0/24
