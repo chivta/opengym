@@ -1,0 +1,12 @@
+# Users, passkey credentials, per-user workout state, the push subscriptions, the audit log,
+# the HMAC session secret and the VAPID keypair. Losing this volume signs everyone out
+# permanently: passkeys are bound to the credential records stored here.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opengym-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi

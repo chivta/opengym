@@ -1,0 +1,12 @@
+# Exercise images and GIFs (~140 MB), the same payload the compose `media` service drops in
+# ./media. Fetched once by the initContainer in web/deployment.yaml and kept across restarts
+# so a pod restart is not a 140 MB download. Not backed up: it is a copy of a public dataset.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opengym-media
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi

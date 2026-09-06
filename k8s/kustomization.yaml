@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Set once here so the component files stay free of a hardcoded namespace.
+namespace: opengym
+
+resources:
+  - namespace.yaml
+  - api/pvc.yaml
+  - api/deployment.yaml
+  - api/service.yaml
+  - web/pvc.yaml
+  - web/deployment.yaml
+  - web/service.yaml
+  - ingress.yaml
+
+# No secrets.enc.yaml and no imagePullSecrets: openGym has no credentials to hand the
+# cluster (the session secret and the VAPID keypair are generated into the data volume on
+# first boot), and both GHCR packages are public, so the kubelet pulls them anonymously.
+
+# Rewritten by .github/workflows/cd.yaml on every green build — `placeholder` only ever
+# appears before the first CD run.
+images:
+  - name: ghcr.io/chivta/opengym-api
+    newTag: placeholder
+  - name: ghcr.io/chivta/opengym-web
+    newTag: placeholder

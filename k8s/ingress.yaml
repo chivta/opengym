@@ -1,0 +1,27 @@
+# One host for the app and the API — WebAuthn requires a single origin, which is what the
+# compose stack gets from nginx proxying /api itself. Here Traefik does the split instead.
+# No tls: block: the letsencrypt resolver already holds a wildcard for *.chivtar.dev.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opengym
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: opengym.chivtar.dev
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 3000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80

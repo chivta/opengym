@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    app: api
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # The data volume is ReadWriteOnce, so a rolling update would deadlock waiting for a
+  # second pod to mount what the first still holds.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # node:22-alpine's own `node` user. fsGroup hands it the data volume, which
+        # local-path provisions owned by root.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: api
+          image: ghcr.io/chivta/opengym-api:placeholder
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+          env:
+            # Passkeys are bound to this exact hostname and to HTTPS. Changing either
+            # invalidates every credential already registered.
+            - name: RP_ID
+              value: opengym.chivtar.dev
+            - name: ORIGIN
+              value: https://opengym.chivtar.dev
+            - name: RP_NAME
+              value: openGym
+            - name: PORT
+              value: "3000"
+            - name: DATA_DIR
+              value: /data
+            # A profile is the only way in — browser-only guest mode is the wrong front
+            # door for an instance meant for a known set of people.
+            - name: ALLOW_GUEST
+              value: "0"
+            # INVITE_ONLY and ADMIN_UIDS are deliberately absent on the first deploy:
+            # an admin can only be named after somebody has registered a passkey, and
+            # invite-only with no admin locks everybody out. See k8s/README.md.
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: opengym-data
+        # atomicWrite keeps its temp files inside DATA_DIR (rename has to stay on one
+        # filesystem), so this is only scratch space for anything in the Node runtime that
+        # expects a writable /tmp under readOnlyRootFilesystem.
+        - name: tmp
+          emptyDir: {}

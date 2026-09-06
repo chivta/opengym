@@ -1,0 +1,142 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # The media volume is ReadWriteOnce; a rolling update would deadlock on the mount.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # The nginx image's own unprivileged user. fsGroup is what makes the emptyDirs
+        # below writable by it — nginx's entrypoint renders the config template into
+        # /etc/nginx/conf.d and skips it silently if that directory is not writable.
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+      initContainers:
+        # Same job as the compose `media` service: fetch the dataset once, skip if the
+        # volume already holds it. Metadata is MIT, the images and GIFs are © Gym visual
+        # and are pulled from upstream rather than redistributed — see NOTICE.md.
+        - name: media
+          image: alpine/git:2.54.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: HOME
+              value: /tmp
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              mkdir -p /out/img /out/gif
+              if [ -n "$(ls -A /out/img 2>/dev/null)" ]; then
+                echo "exercise media already present - skipping download"
+                exit 0
+              fi
+              echo "downloading exercise media (~140 MB, one time)"
+              git clone --depth 1 https://github.com/hasaneyldrm/exercises-dataset /tmp/ds
+              cp /tmp/ds/images/*.jpg /out/img/
+              cp /tmp/ds/videos/*.gif /out/gif/
+              rm -rf /tmp/ds
+              echo "exercise media ready ($(ls /out/img | wc -l) images)"
+          volumeMounts:
+            - name: media
+              mountPath: /out
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      containers:
+        - name: web
+          image: ghcr.io/chivta/opengym-web:placeholder
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+          env:
+            # Not 80: an unprivileged process cannot bind it. The Service maps 80 to this.
+            - name: NGINX_PORT
+              value: "8080"
+            # BACKEND/PORT still render into the template's /api proxy block, but nothing
+            # reaches it — the Ingress routes /api straight to the api Service, which is
+            # also why nginx's Docker-DNS resolver is never consulted here.
+            - name: BACKEND
+              value: api
+            - name: PORT
+              value: "3000"
+          volumeMounts:
+            - name: media
+              mountPath: /usr/share/nginx/html/img
+              subPath: img
+              readOnly: true
+            - name: media
+              mountPath: /usr/share/nginx/html/gif
+              subPath: gif
+              readOnly: true
+            # All four are writes the nginx entrypoint and worker processes make outside
+            # the volumes, so readOnlyRootFilesystem needs each of them backed.
+            - name: conf
+              mountPath: /etc/nginx/conf.d
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /run
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: opengym-media
+        - name: conf
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
