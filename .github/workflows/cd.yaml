@@ -1,0 +1,150 @@
+# Deploys to the k3s cluster. Separate from docker-publish.yml on purpose: that workflow
+# publishes the :latest and :vX.Y.Z tags self-hosters pull, multi-arch, and is triggered by
+# releases as well as pushes. This one only ever produces the immutable full-SHA tag Flux
+# pins, amd64-only because the cluster is a single amd64 node.
+#
+# Gated on Tests via workflow_run so an untested commit never reaches the cluster. The
+# `deploy:` commit it writes touches k8s/kustomization.yaml alone, which is not in the Tests
+# path filter, so it cannot trigger another round.
+name: CD
+
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  API_IMAGE: ghcr.io/chivta/opengym-api
+  WEB_IMAGE: ghcr.io/chivta/opengym-web
+
+jobs:
+  build:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.changes.outputs.api }}
+      web: ${{ steps.changes.outputs.web }}
+      sha: ${{ github.event.workflow_run.head_sha }}
+      stale: ${{ steps.guard.outputs.stale }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      # A queued run whose commit has already been superseded would otherwise pin an older
+      # image over a newer one. Same guard stops a late run racing a fresh deploy.
+      - name: Abort if main has moved on
+        id: guard
+        run: |
+          git fetch --quiet origin main
+          if [ "$(git rev-parse origin/main)" != "${{ github.event.workflow_run.head_sha }}" ]; then
+            echo "main is past ${{ github.event.workflow_run.head_sha }} - nothing to deploy"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Build only what changed since the SHA currently pinned in the manifest. A missing,
+      # placeholder or identical previous tag forces both builds.
+      - name: Detect changed components
+        id: changes
+        if: steps.guard.outputs.stale == 'false'
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          prev_tag() {
+            awk -v img="$1" '
+              $1=="-" && $2=="name:" && $3==img { f=1; next }
+              f && $1=="newTag:" { print $2; exit }
+            ' k8s/kustomization.yaml
+          }
+          decide() {
+            prev="$1"; shift
+            if [ -z "$prev" ] || [ "$prev" = "placeholder" ] || [ "$prev" = "$SHA" ]; then
+              echo true; return
+            fi
+            if git diff --name-only "$prev" "$SHA" | grep -qE "$1"; then echo true; else echo false; fi
+          }
+          echo "api=$(decide "$(prev_tag "$API_IMAGE")" '^api/')" >> "$GITHUB_OUTPUT"
+          # The web image builds frontend/ against api/coach/core/, and web/ carries the
+          # Dockerfile and the nginx template.
+          echo "web=$(decide "$(prev_tag "$WEB_IMAGE")" '^(frontend/|web/|api/coach/core/)')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+        if: steps.guard.outputs.stale == 'false'
+
+      - uses: docker/login-action@v4.6.0
+        if: steps.guard.outputs.stale == 'false'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # No --target: the last stage of api/Dockerfile is `default`, the runtime-free image,
+      # which is what the cluster runs. The AI Coach stays off here.
+      - name: Build and push api
+        if: steps.changes.outputs.api == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.API_IMAGE }}:${{ github.event.workflow_run.head_sha }}
+          build-args: |
+            VERSION=main-${{ github.event.workflow_run.head_sha }}
+            VCS_REF=${{ github.event.workflow_run.head_sha }}
+          cache-from: type=gha,scope=cd-api
+          cache-to: type=gha,mode=max,scope=cd-api
+
+      - name: Build and push web
+        if: steps.changes.outputs.web == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./web/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.WEB_IMAGE }}:${{ github.event.workflow_run.head_sha }}
+          build-args: |
+            VERSION=main-${{ github.event.workflow_run.head_sha }}
+            VCS_REF=${{ github.event.workflow_run.head_sha }}
+          cache-from: type=gha,scope=cd-web
+          cache-to: type=gha,mode=max,scope=cd-web
+
+  deploy:
+    needs: build
+    if: ${{ needs.build.outputs.stale == 'false' && (needs.build.outputs.api == 'true' || needs.build.outputs.web == 'true') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+
+      - uses: imranismail/setup-kustomize@v2
+
+      - name: Pin the built images
+        working-directory: ./k8s
+        run: |
+          if [ "${{ needs.build.outputs.api }}" = "true" ]; then
+            kustomize edit set image "$API_IMAGE=$API_IMAGE:${{ needs.build.outputs.sha }}"
+          fi
+          if [ "${{ needs.build.outputs.web }}" = "true" ]; then
+            kustomize edit set image "$WEB_IMAGE=$WEB_IMAGE:${{ needs.build.outputs.sha }}"
+          fi
+
+      - name: Commit the manifest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add k8s/kustomization.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "deploy: opengym ${{ needs.build.outputs.sha }}"
+          git push origin HEAD:main

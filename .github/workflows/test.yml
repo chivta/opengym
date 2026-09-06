@@ -8,6 +8,9 @@ on:
       - 'frontend/**'
       - 'api/**'
       - 'mcp/**'
+      # The web image is built from frontend/ + this template; a change to either has to be
+      # able to reach the cluster, and CD only fires after this workflow.
+      - 'web/**'
       - 'scripts/build-coach-assets.mjs'
       - 'scripts/build-coach-library.mjs'
       - 'api/coach/prompts/**'
@@ -18,6 +21,9 @@ on:
       - 'frontend/**'
       - 'api/**'
       - 'mcp/**'
+      # The web image is built from frontend/ + this template; a change to either has to be
+      # able to reach the cluster, and CD only fires after this workflow.
+      - 'web/**'
       - 'scripts/build-coach-assets.mjs'
       - 'scripts/build-coach-library.mjs'
       - 'api/coach/prompts/**'
