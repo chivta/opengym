@@ -9,31 +9,58 @@ import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 
 export function ConnectSheet({ close }) {
-  const { connectToServer } = useStore()
+  const { connectToServer, connectToServerWithPassword } = useStore()
   const [url, setUrl] = useState('')
   const [code, setCode] = useState('')
+  const [name, setName] = useState('')
+  const [pw, setPw] = useState('')
+  // A pairing code has to be minted from a browser tab that is already signed in, which a phone
+  // being set up on its own does not have. The password path needs nothing but this screen.
+  const [byPassword, setByPassword] = useState(false)
   const [busy, setBusy] = useState(false)
   const ref = useRef(null)
   useEffect(() => { setTimeout(() => ref.current?.focus(), 250) }, [])
   const go = async () => {
-    if (!url.trim() || !code.trim()) { useUI.getState().toast(t('Enter your server address and the code')); return }
+    const server = url.trim()
+    if (byPassword ? (!server || !name.trim() || !pw) : (!server || !code.trim())) {
+      useUI.getState().toast(byPassword ? t('Enter your server address, name and password') : t('Enter your server address and the code'))
+      return
+    }
     setBusy(true)
-    try { await connectToServer(url.trim(), code.trim()); close(); useUI.getState().toast(t('Connected')) }
+    try {
+      if (byPassword) await connectToServerWithPassword(server, name.trim(), pw)
+      else await connectToServer(server, code.trim())
+      close(); useUI.getState().toast(t('Connected'))
+    }
     catch (e) { useUI.getState().toast(e.message || t('Could not connect')) }
     finally { setBusy(false) }
   }
   return <>
     <h3>{t('Connect to my server')}</h3>
     <div className="muted small" style={{ marginBottom: 14 }}>
-      {t('Open Settings → “Pair the mobile app” on the openGym site you’re already signed into, then enter its address and the code shown there.')}
+      {byPassword
+        ? t('Enter your server’s address and the name and password of your profile on it.')
+        : t('Open Settings → “Pair the mobile app” on the openGym site you’re already signed into, then enter its address and the code shown there.')}
     </div>
     <input ref={ref} className="input" placeholder={t('Server address (e.g. gym.example.com)')} value={url}
       onChange={e => setUrl(e.target.value)} autoCapitalize="none" autoCorrect="off" inputMode="url" />
     <div style={{ height: 10 }} />
-    <input className="input" placeholder={t('Pairing code')} maxLength={8} value={code}
-      onChange={e => setCode(e.target.value.toUpperCase())} style={{ letterSpacing: '.14em', fontWeight: 600, textAlign: 'center' }} />
+    {byPassword ? <>
+      <input className="input" placeholder={t('Your name')} maxLength={40} autoComplete="username"
+        value={name} onChange={e => setName(e.target.value)} />
+      <div style={{ height: 10 }} />
+      <input className="input" type="password" placeholder={t('Password')} maxLength={200} autoComplete="current-password"
+        value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') go() }} />
+    </> : (
+      <input className="input" placeholder={t('Pairing code')} maxLength={8} value={code}
+        onChange={e => setCode(e.target.value.toUpperCase())} style={{ letterSpacing: '.14em', fontWeight: 600, textAlign: 'center' }} />
+    )}
     <div style={{ height: 12 }} />
     <Button variant="primary" onClick={go} disabled={busy}>{busy ? t('Connecting…') : t('Connect')}</Button>
+    <div style={{ height: 10 }} />
+    <Button variant="ghost" className="dim" onClick={() => setByPassword(v => !v)}>
+      {byPassword ? t('Use a pairing code instead') : t('Use your name and password instead')}
+    </Button>
   </>
 }
 

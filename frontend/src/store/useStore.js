@@ -5,7 +5,7 @@ import { registerCustom } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
 import { guestAllowed } from '../lib/guest.js'
 import { MOBILE, initReminderSync, nativeLoad, nativeSave, syncReminder, writeAutoBackup } from '../lib/mobile.js'
-import { loadRemote, chooseLocal, forgetRemote, connect } from '../lib/remote.js'
+import { loadRemote, chooseLocal, forgetRemote, connect, connectWithPassword } from '../lib/remote.js'
 import { loadCoachDevice, saveCoachDevice, coachDeviceSettings } from '../lib/coach-device.js'
 
 import { WC_DEFAULT } from '../lib/workout-controls.js'
@@ -228,7 +228,18 @@ export const useStore = create((set, get) => {
     // Redeems the pairing code shown in the browser (Settings → "Pair the mobile app") and
     // switches this device over to that account, same as signing in on the web does.
     async connectToServer(url, code) {
-      const user = await connect(url, code)   // throws on a bad URL/expired code — caller shows it
+      return get().adoptRemote(connect(url, code))
+    },
+    // The same switch-over, proved with the account's name and password. Separate action rather
+    // than a flag because the onboarding screen collects different fields for each.
+    async connectToServerWithPassword(url, name, password) {
+      return get().adoptRemote(connectWithPassword(url, name, password))
+    },
+    // Everything after the exchange, whichever way the device proved itself. The promise is
+    // passed in unresolved so a bad URL, an expired code or a wrong password still throws out
+    // to the caller, which is what shows the message.
+    async adoptRemote(exchange) {
+      const user = await exchange
       get().setUser(user)
       await get().refreshConfig()   // what this server offers (the Coach, guest mode) — see boot()
       await get().pullState()

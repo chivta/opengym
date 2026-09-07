@@ -766,7 +766,37 @@ const routes = {
       return json(res, 403, { error: 'this account has been disabled' });
     }
     audit(req, 'auth.login.ok', { user, msg: 'password' });
-    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) } }, { 'Set-Cookie': sessionCookie(user) });
+    // The mobile app asks for `bearer` because its WebView runs at its own origin and a cookie
+    // set for the server's hostname would never come back. Only when asked: in a browser the
+    // cookie is HttpOnly precisely so script cannot read the session, and handing the same
+    // token to script in the response body would give that away for nothing.
+    const extra = body.want === 'bearer' ? { token: makeSession(user) } : {};
+    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) }, ...extra }, { 'Set-Cookie': sessionCookie(user) });
+  },
+
+  // Give the signed-in account a password, or change the one it has. This is how a profile
+  // created with a passkey becomes reachable from a desktop that cannot make one, without a
+  // second profile and a second copy of the data.
+  'POST /api/password/set': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const body = await readBody(req);
+    const password = String(body.password || '');
+    if (password.length < PW_MIN) return json(res, 400, { error: `password must be at least ${PW_MIN} characters` });
+    if (password.length > 200) return json(res, 400, { error: 'password too long' });
+    // Adding a first password needs no old one: the session already proves the passkey. Changing
+    // an existing one does, so a borrowed unlocked browser cannot quietly relock the account.
+    if (user.pw && !(await verifyPassword(String(body.current || ''), user.pw))) {
+      audit(req, 'auth.password.fail', { ok: false, user, msg: 'current-wrong' });
+      return json(res, 403, { error: 'wrong current password' });
+    }
+    const had = !!user.pw;
+    user.pw = await hashPassword(password);
+    saveDb();
+    // Existing sessions deliberately survive: sv stays put, so setting a password does not sign
+    // this device, or the phone, out. "Sign out everywhere" is the button for that.
+    audit(req, 'auth.password.set', { user, msg: had ? 'changed' : 'added' });
+    json(res, 200, { ok: true });
   },
 
   // Reads the session purely so the sign-out can be recorded; the cookie is cleared either way.

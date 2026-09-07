@@ -6,7 +6,7 @@ import { convertStateUnit } from '../lib/units.js'
 import { useUI } from '../store/useUI.js'
 import { ACCENTS, todayISO, localTZ, weekStartOf, MONDAY, SUNDAY } from '../lib/format.js'
 import { effortOf } from '../lib/history.js'
-import { api, webauthnOK, passkeyLogin, passkeyRegister, IS_ANDROID } from '../lib/api.js'
+import { api, webauthnOK, passkeyLogin, passkeyRegister, passwordSet, PW_MIN, IS_ANDROID } from '../lib/api.js'
 import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
@@ -170,8 +170,10 @@ export default function Settings() {
         <Row icon="rocket" iconTint="var(--indigo)" title={t('Self-host openGym')} subtitle={t('Passkey sign-in, sync across your devices, your own data.')} accessory="chevron"
           onClick={() => window.open(REPO, '_blank', 'noopener')} />
       </> : user ? <>
-        <Row icon="personCircle" iconTint="var(--grey)" title={user.name} subtitle={t('Signed in with passkey — data syncs to this profile.')} />
+        <Row icon="personCircle" iconTint="var(--grey)" title={user.name} subtitle={t('Signed in — data syncs to this profile.')} />
         {user.admin && <Row icon="wrench" iconTint="var(--indigo)" title={t('Admin dashboard')} accessory="chevron" onClick={() => nav('/admin')} />}
+        <Row icon="key" iconTint="var(--acc)" title={t('Set a password')} subtitle={t('So you can sign in where this device cannot make a passkey.')} accessory="chevron"
+          onClick={() => useUI.getState().openSheet(close => <PasswordSheet close={close} />)} />
         <Row icon="link" iconTint="var(--blue)" title={t('Pair the mobile app')} subtitle={t('Connect the openGym app on your phone to this account.')} accessory="chevron"
           onClick={() => useUI.getState().openSheet(close => <PairSheet close={close} />)} />
         <Row icon="signOut" iconTint="var(--red)" title={t('Sign out')} danger onClick={() => confirmSheet({ title: t('Sign out?'), message: t('Your data is synced to your profile first, then cleared from this device.'), confirmText: t('Sign out'), danger: true, onConfirm: () => { signOut(); nav('/home') } })} />
@@ -576,6 +578,37 @@ function EquipmentCard({ S, update }) {
 // Lets the mobile app's "connect to my server" mode (lib/remote.js) authenticate without a
 // WebAuthn ceremony of its own — the code is minted here, from an already signed-in session,
 // and redeemed by the app for a bearer token. See /api/pair/create in api/server.js.
+// Adds a password to an account that has none, or changes the one it has. The server decides
+// which of those this is: it asks for the current password only when there already is one, so
+// a passkey profile gaining its first password never sees that field filled in.
+function PasswordSheet({ close }) {
+  const toast = useUI.getState().toast
+  const [current, setCurrent] = useState('')
+  const [pw, setPw] = useState('')
+  const [busy, setBusy] = useState(false)
+  const go = async () => {
+    if (pw.length < PW_MIN) { toast(t('Password must be at least {0} characters', PW_MIN)); return }
+    setBusy(true)
+    try { await passwordSet(pw, current); close(); toast(t('Password saved')) }
+    catch (e) { toast(e.message || t('Could not save the password')) }
+    finally { setBusy(false) }
+  }
+  return <>
+    <h3>{t('Set a password')}</h3>
+    <div className="muted small" style={{ marginBottom: 14 }}>
+      {t('Sign in as {0} with this password on a device that cannot make a passkey. Your passkey keeps working.', useStore.getState().user?.name || '')}
+    </div>
+    <input className="input" type="password" placeholder={t('Current password (if you have one)')} maxLength={200}
+      autoComplete="current-password" value={current} onChange={e => setCurrent(e.target.value)} />
+    <div style={{ height: 10 }} />
+    <input className="input" type="password" placeholder={t('Password ({0}+ characters)', PW_MIN)} maxLength={200}
+      autoComplete="new-password" value={pw} onChange={e => setPw(e.target.value)}
+      onKeyDown={e => { if (e.key === 'Enter') go() }} />
+    <div style={{ height: 12 }} />
+    <Button variant="primary" onClick={go} disabled={busy}>{busy ? t('Saving…') : t('Save password')}</Button>
+  </>
+}
+
 function PairSheet({ close }) {
   const [code, setCode] = useState(null)
   const [err, setErr] = useState(null)

@@ -24,13 +24,20 @@ synced the same way the browser PWA does, instead of only on the phone. This is 
 same app, not a different build or download.
 
 Passkeys can't be used for this: the app's WebView runs at its own origin, which never
-matches the real hostname WebAuthn needs. Instead you *pair* the device from a browser
-that's already signed in: Settings → **"Pair the mobile app"** shows a one-time code (valid
-5 minutes); enter your server's address and that code in the app (same first-launch screen,
-or Settings → **"Connect to my server"** later) to finish. Notes:
+matches the real hostname WebAuthn needs. Two other ways in, both ending at the same bearer
+token, on the first-launch screen or Settings → **"Connect to my server"** later:
 
-- Requires network access every time the app is used — there's no offline file mirror once
-  connected, same as the browser PWA.
+- **A pairing code.** From a browser already signed in, Settings → **"Pair the mobile app"**
+  shows a one-time code, valid 5 minutes. Enter your server's address and that code.
+- **Your name and password.** Needs nothing but the app, which is the point: a pairing code
+  has to be minted from a signed-in browser, and a phone being set up on its own has none.
+  Give a passkey profile a password first from Settings → **"Set a password"**.
+
+Notes:
+
+- Works offline once connected. The app falls back to the last-synced local copy when the
+  server can't be reached, so you can log a workout with no signal and it syncs on the next
+  launch. What you don't get offline is other devices' changes, since nothing pulls.
 - Use an HTTPS address if at all possible: the connection carries a bearer token instead of
   a cookie, and that token would otherwise cross the network in plain text.
 - "Sign out everywhere" (Settings → Account, in the browser) revokes a paired app's access

@@ -24,15 +24,29 @@ export async function api(path, opts) {
   return data
 }
 
-// Bootstraps the connection itself: the base isn't configured yet (that's what this call decides),
-// so it talks straight to the server the user typed in, no Authorization header.
-export async function pairRedeem(serverBase, code) {
-  const r = await fetch(serverBase + '/api/pair/redeem', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code })
+// Bootstraps the connection itself: the base isn't configured yet (that's what these calls
+// decide), so they talk straight to the server the user typed in, no Authorization header.
+async function bootstrapPost(serverBase, path, body) {
+  const r = await fetch(serverBase + path, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   })
   const data = await r.json().catch(() => ({}))
   if (!r.ok) { const e = new Error(data.error || ('HTTP ' + r.status)); e.status = r.status; throw e }
   return data
+}
+
+export const pairRedeem = (serverBase, code) => bootstrapPost(serverBase, '/api/pair/redeem', { code })
+
+// The other way into "connect to my server", for a phone with no signed-in browser to mint a
+// pairing code. `want: 'bearer'` is what makes the server put the session in the response body:
+// the WebView runs at its own origin, so a cookie for the server's hostname never comes back.
+export const passwordConnect = (serverBase, name, password) =>
+  bootstrapPost(serverBase, '/api/password/login', { name, password, want: 'bearer' })
+
+// Give the signed-in account a password, or change the one it has. `current` is ignored by the
+// server when the account has no password yet, which is the passkey-profile case.
+export async function passwordSet(password, current) {
+  await api('/api/password/set', { method: 'POST', body: JSON.stringify({ password, current: current || '' }) })
 }
 
 const bufToB64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
