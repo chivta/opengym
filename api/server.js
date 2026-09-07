@@ -18,6 +18,7 @@ import { startCadence } from './coach/cadence.js';
 import { startWarmup } from './coach/warmup.js';
 import { dayReminderPush, restTimerPush, testPush } from './push-messages.js';
 import { verifyError } from './verify-error.js';
+import { PW_MIN, hashPassword, verifyPassword } from './password.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -68,6 +69,10 @@ try { db = JSON.parse(fs.readFileSync(dbFile, 'utf8')); } catch {}
 db.subs = db.subs || [];
 db.invites = db.invites || [];
 const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
+// Whether a stored user answers to the name a password sign-in was given. Case-insensitive,
+// and defensive about the stored side: db.json is a file owners edit by hand, and a record
+// with no name must not take the login route down with it.
+const sameName = (user, name) => String(user.name || '').toLowerCase() === name.toLowerCase();
 // 0600: db.json holds passkey credential material. It used to be covered by a blanket 0700 on
 // the whole directory; now that the directory stays traversable, the file carries its own mode.
 function saveDb() { atomicWrite(dbFile, JSON.stringify(db, null, 2), 0o600); }
@@ -356,9 +361,13 @@ const clearCookie = COOKIE === LEGACY_COOKIE
 // below are not holes: each of those routes carries its own credential in the body (a WebAuthn
 // challenge id, a one-shot pairing code), none of them acts on the caller's existing session, and
 // they have to keep working from the mobile WebView, whose origin is never ORIGIN.
+// The password routes qualify on the same three counts: the password in the body is the
+// credential, neither route reads the caller's existing session, and both have to work from
+// the mobile WebView.
 const CSRF_EXEMPT = new Set([
   'POST /api/register/options', 'POST /api/register/verify',
   'POST /api/login/options', 'POST /api/login/verify',
+  'POST /api/password/register', 'POST /api/password/login',
   'POST /api/pair/redeem'
 ]);
 const originsMatch = (a, b) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
@@ -696,6 +705,67 @@ const routes = {
       return json(res, 403, { error: 'this account has been disabled' });
     }
     audit(req, 'auth.login.ok', { user });
+    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) } }, { 'Set-Cookie': sessionCookie(user) });
+  },
+
+  /* ---------- name + password, alongside the passkey routes above ----------
+   * A device with no fingerprint reader and no Windows Hello cannot make a platform passkey,
+   * which on a private instance is a locked door with nobody to keep out. These two routes
+   * mint exactly the same session the passkey path does: everything below the identity check
+   * is shared, because makeSession() only ever needed a user record.
+   * An account can hold a passkey, a password, or both. */
+
+  'POST /api/password/register': async (req, res) => {
+    const body = await readBody(req);
+    const name = String(body.name || '').trim().slice(0, 40);
+    if (!name) return json(res, 400, { error: 'name required' });
+    const password = String(body.password || '');
+    if (password.length < PW_MIN) return json(res, 400, { error: `password must be at least ${PW_MIN} characters` });
+    if (password.length > 200) return json(res, 400, { error: 'password too long' });
+    // Invite before name, so that "that name is taken" is only ever an answer given to someone
+    // already holding a code. The other order turns this route into a way to ask which
+    // profiles exist on an instance you have no business reaching at all.
+    const code = String(body.code || '').trim().toUpperCase();
+    let invite = null;
+    if (INVITE_ONLY) {
+      invite = db.invites.find(i => i.code === code && !i.usedBy && !i.revoked);
+      if (!invite) {
+        audit(req, 'auth.register.denied', { ok: false, name, msg: 'invite-rejected' });
+        return json(res, 403, { error: 'a valid invite code is required' });
+      }
+    }
+    // Passkey accounts are found by credential, so they never needed unique names. Password
+    // accounts are found by name, so this one does. Older duplicates keep working untouched.
+    if (db.users.some(u => sameName(u, name))) {
+      audit(req, 'auth.register.denied', { ok: false, name, msg: 'name-taken' });
+      return json(res, 409, { error: 'that name is taken' });
+    }
+    const user = { id: crypto.randomBytes(12).toString('base64url'), name, created: new Date().toISOString() };
+    user.pw = await hashPassword(password);
+    if (invite) { user.invitedBy = invite.code; invite.usedBy = user.id; invite.usedAt = user.created; }
+    db.users.push(user);
+    saveDb();
+    audit(req, 'auth.register.ok', { user, msg: 'password' });
+    json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) } }, { 'Set-Cookie': sessionCookie(user) });
+  },
+
+  'POST /api/password/login': async (req, res) => {
+    const body = await readBody(req);
+    const name = String(body.name || '').trim();
+    const password = String(body.password || '');
+    const user = db.users.find(u => sameName(u, name));
+    // One status and one message for "no such name", "that account has no password" and "wrong
+    // password" alike, so the response never confirms which names exist. The audit log is
+    // where the distinction belongs, and it stays on this side of the wire.
+    if (!user || !user.pw || !(await verifyPassword(password, user.pw))) {
+      audit(req, 'auth.login.fail', { ok: false, msg: 'password-bad' });
+      return json(res, 401, { error: 'wrong name or password' });
+    }
+    if (user.disabled) {
+      audit(req, 'auth.login.fail', { ok: false, user, msg: 'account-disabled' });
+      return json(res, 403, { error: 'this account has been disabled' });
+    }
+    audit(req, 'auth.login.ok', { user, msg: 'password' });
     json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) } }, { 'Set-Cookie': sessionCookie(user) });
   },
 

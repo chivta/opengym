@@ -42,6 +42,14 @@ passkey prompt won't appear. To use openGym from your phone you need a real HTTP
 
 (You can still open it over LAN in **guest mode**, which stores data only in that browser.)
 
+Neither rule applies to the **name-and-password** sign-in on the same screen, which needs no
+authenticator and no HTTPS, so it works over a LAN address and on a desktop with no fingerprint
+reader or Windows Hello. It is a real server profile, so it syncs and gets backed up exactly
+like a passkey one. Passwords are hashed with scrypt (`api/password.js`) and one account can
+hold both, which is the usual arrangement: a passkey on the phone, a password on the desktop.
+A password travels over the wire, so on an instance reachable from the internet put HTTPS in
+front of it and prefer passkeys where the device can make one.
+
 The standalone mobile app (`docs/MOBILE.md`) sidesteps this entirely for its "connect to my
 server" mode: instead of a passkey ceremony (impossible from inside its WebView, which never
 runs at your real hostname), it pairs by redeeming a short one-time code — minted from

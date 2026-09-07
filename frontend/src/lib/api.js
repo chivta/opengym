@@ -80,3 +80,19 @@ export async function passkeyLogin() {
   const res = await api('/api/login/verify', { method: 'POST', body: JSON.stringify({ cid, credential: credToJSON(cred) }) })
   return res.user
 }
+
+// Shortest password the server accepts, mirrored here only so the form can say so before
+// spending a round trip. The server enforces it; PW_MIN in api/password.js is the real one.
+export const PW_MIN = 8
+
+// Name and password, for devices that cannot make a passkey: a desktop with no fingerprint
+// reader and no Windows Hello has no platform authenticator to offer. One account can hold
+// both, so a phone can still use the passkey.
+export async function passwordRegister(name, password, code) {
+  const res = await api('/api/password/register', { method: 'POST', body: JSON.stringify({ name, password, code: code || '' }) })
+  return res.user
+}
+export async function passwordLogin(name, password) {
+  const res = await api('/api/password/login', { method: 'POST', body: JSON.stringify({ name, password }) })
+  return res.user
+}
