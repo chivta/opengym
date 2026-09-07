@@ -24,7 +24,7 @@ resources:
 images:
 - name: ghcr.io/chivta/opengym-api
   newName: ghcr.io/chivta/opengym-api
-  newTag: 627504ad679511975842aa69ea46953bf47d7121
+  newTag: 257316401d203f33939c080e1616b532e0b44b62
 - name: ghcr.io/chivta/opengym-web
   newName: ghcr.io/chivta/opengym-web
-  newTag: 627504ad679511975842aa69ea46953bf47d7121
+  newTag: 257316401d203f33939c080e1616b532e0b44b62
