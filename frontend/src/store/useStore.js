@@ -95,8 +95,11 @@ export const useStore = create((set, get) => {
     saveTm = setTimeout(() => { saveTm = null; nativeSave(get().S); syncReminder(get().S) }, 800)
   }
 
-  const persist = (S, push = true) => {
-    S._ts = Date.now()
+  // stamp=false keeps the state's existing _ts. Only the offline restore in boot() wants that:
+  // _ts is what decides who wins against the server's copy, so re-stamping a restored file with
+  // "now" would make an old mirror outrank the newer state sitting on the server.
+  const persist = (S, push = true, stamp = true) => {
+    if (stamp) S._ts = Date.now()
     registerCustom(S.customEx)
     localStorage.setItem(KEY, JSON.stringify(S))
     set({ S })
@@ -281,7 +284,17 @@ export const useStore = create((set, get) => {
             await get().pullState()
           } catch (e) {
             if (e.status === 401) { await forgetRemote(); get().setGuest(true) }
-            else get().setUser(remote.user)   // offline — keep going from the last-synced local copy
+            else {
+              // Offline: keep going from the last-synced local copy. localStorage is normally
+              // that copy, but the OS may have evicted it since the last run, and with no
+              // network there is no server to restore it from either. The file mirror is
+              // written in this mode too (persist -> nativePersist), it was just never read
+              // back here, so an eviction that happened to coincide with being offline came up
+              // as an empty app standing next to a perfectly good file.
+              const saved = await nativeLoad()
+              if (saved && !hasData(get().S)) persist(Object.assign(clone(DEF), saved), false, false)
+              get().setUser(remote.user)
+            }
           }
           syncReminder(get().S)
           set({ ready: true })
