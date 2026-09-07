@@ -53,9 +53,15 @@ spec:
             # door for an instance meant for a known set of people.
             - name: ALLOW_GUEST
               value: "0"
+            # Ten years. The default 90 days is sized for an instance on the open internet,
+            # where a stolen cookie staying good forever is the thing to avoid. This one is
+            # only reachable from the tailnet, so the trade runs the other way: signing in
+            # again on a desktop with no biometrics is the cost worth removing.
+            - name: SESSION_DAYS
+              value: "3650"
             # INVITE_ONLY and ADMIN_UIDS are deliberately absent on the first deploy:
-            # an admin can only be named after somebody has registered a passkey, and
-            # invite-only with no admin locks everybody out. See k8s/README.md.
+            # an admin can only be named after somebody has registered, and invite-only
+            # with no admin locks everybody out. See k8s/README.md.
           volumeMounts:
             - name: data
               mountPath: /data
