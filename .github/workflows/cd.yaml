@@ -128,7 +128,7 @@ jobs:
         with:
           ref: ${{ needs.build.outputs.sha }}
 
-      - uses: imranismail/setup-kustomize@v2
+      - uses: imranismail/setup-kustomize@v3
 
       - name: Pin the built images
         working-directory: ./k8s
